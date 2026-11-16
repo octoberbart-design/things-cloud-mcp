@@ -4642,9 +4642,9 @@ func main() {
 	}
 
 	log.Printf("Things Cloud MCP server listening on %s", addr)
-	log.Printf("  Landing page: http://localhost%s/", addr)
-	log.Printf("  MCP endpoint: http://localhost%s/mcp", addr)
-	log.Printf("  OAuth metadata: http://localhost%s/.well-known/oauth-authorization-server", addr)
+	log.Printf("  Landing page: http://%s/", addr)
+	log.Printf("  MCP endpoint: http://%s/mcp", addr)
+	log.Printf("  OAuth metadata: http://%s/.well-known/oauth-authorization-server", addr)
 	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
