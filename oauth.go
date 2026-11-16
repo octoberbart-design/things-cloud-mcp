@@ -505,6 +505,10 @@ func (o *OAuthServer) ResolveBearer(token string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid token: missing subject")
 	}
 
+	if !o.um.emailAllowed(email) {
+		return "", "", fmt.Errorf("this account is not allowed on this server")
+	}
+
 	o.mu.RLock()
 	password, ok := o.credentials[email]
 	o.mu.RUnlock()
@@ -709,6 +713,21 @@ func (o *OAuthServer) handleAuthorizePost(w http.ResponseWriter, r *http.Request
 			clientName = client.ClientName
 		}
 		o.renderLoginPage(w, clientName, "Email and password are required.", q.Encode())
+		return
+	}
+
+	// Refuse accounts outside ALLOWED_EMAILS before contacting Things Cloud, with
+	// the same message as a wrong password so the allowlist cannot be probed.
+	if !o.um.emailAllowed(email) {
+		log.Printf("OAuth: refused sign-in for an account outside ALLOWED_EMAILS")
+		o.mu.RLock()
+		client := o.clients[clientID]
+		o.mu.RUnlock()
+		clientName := ""
+		if client != nil {
+			clientName = client.ClientName
+		}
+		o.renderLoginPage(w, clientName, "Invalid Things Cloud credentials.", q.Encode())
 		return
 	}
 

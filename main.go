@@ -1041,7 +1041,9 @@ type UserManager struct {
 	oauth     *OAuthServer // set after OAuthServer is created
 	diagStore *DiagStore   // set after OAuthServer is created
 	newUser   func(email, password string, proxyURL *url.URL) (*ThingsMCP, error)
-	mu        sync.RWMutex
+	// allowedEmails restricts the server to these accounts (lowercase); nil allows all.
+	allowedEmails map[string]bool
+	mu            sync.RWMutex
 }
 
 func NewUserManager() *UserManager {
@@ -1061,6 +1063,9 @@ func sameCredential(a, b [sha256.Size]byte) bool {
 
 func (um *UserManager) GetOrCreateUser(email, password string) (*ThingsMCP, error) {
 	email = strings.TrimSpace(email)
+	if !um.emailAllowed(email) {
+		return nil, fmt.Errorf("this account is not allowed on this server")
+	}
 	key := strings.ToLower(email)
 	digest := credentialDigest(key, password)
 	um.mu.RLock()
@@ -4505,6 +4510,12 @@ func main() {
 
 	um := NewUserManager()
 	um.proxyURLs = proxyURLs
+	um.allowedEmails = parseAllowedEmails(os.Getenv("ALLOWED_EMAILS"))
+	if um.allowedEmails == nil {
+		log.Printf("ALLOWED_EMAILS not set: any Things Cloud account may use this server")
+	} else {
+		log.Printf("ALLOWED_EMAILS: %d account(s) allowed", len(um.allowedEmails))
+	}
 
 	// Initialize OAuth server with persistent state
 	dataDir := os.Getenv("DATA_DIR")
@@ -4546,7 +4557,7 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	addr := ":" + port
+	addr := listenAddr(port)
 
 	// Use a custom mux so we can serve both the landing page and MCP endpoint
 	mux := http.NewServeMux()
@@ -4581,8 +4592,8 @@ func main() {
 	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", oauth.handleProtectedResourceMetadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", oauth.handleAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp", oauth.handleAuthServerMetadata)
-	mux.HandleFunc("/register", oauth.handleRegister)
-	mux.HandleFunc("/authorize", oauth.handleAuthorize)
+	mux.HandleFunc("/register", limitPOST(newAttemptLimiter(20, 100, time.Hour), oauth.handleRegister))
+	mux.HandleFunc("/authorize", limitPOST(newAttemptLimiter(10, 30, 15*time.Minute), oauth.handleAuthorize))
 	mux.HandleFunc("/token", oauth.handleToken)
 
 	mux.HandleFunc("/docs", handleDocsPage)

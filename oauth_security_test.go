@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,11 @@ func TestOAuthCredentialsAreEncryptedAtRestAndReloaded(t *testing.T) {
 		t.Fatal("refresh token was not hashed at rest")
 	}
 
+	// Unix permission bits are not enforced on Windows; deployments there
+	// protect DATA_DIR with an NTFS ACL instead.
+	if runtime.GOOS == "windows" {
+		return
+	}
 	for _, path := range []string{dir, dir + "/oauth.db", dir + "/credentials.key"} {
 		info, err := os.Stat(path)
 		if err != nil {
