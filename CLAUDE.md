@@ -51,12 +51,12 @@ Before adding or modifying MCP tool definitions, check the [MCP builder skill](h
 
 **Do NOT use the Things Cloud MCP tools directly** (e.g. `things_find_tasks`, `things_edit_item`) for testing during development. Those call the deployed production instance, which does not reflect local code changes. Always use `curl` against `localhost:28063` instead, and redeploy first if testing new behavior.
 
-The deployed instance runs as a systemd user service on the remote server `wenbo@e.wenbo.io`, port 28063. Test account for calling MCP tools against the live server:
+The deployed instance runs as a systemd user service on the remote server `wenbo@e.wenbo.io`, port 28063. Use a disposable test account and keep its credentials out of the repository: export `THINGS_BASIC_AUTH` as the base64 of `email:password` in your shell first.
 
 ```bash
 # Call any MCP tool (e.g. things_diagnose)
 curl -s -X POST http://localhost:28063/mcp \
-  -H "Authorization: Basic $(echo -n 'pixelwenbo@gmail.com:bmp6125388th' | base64)" \
+  -H "Authorization: Basic $THINGS_BASIC_AUTH" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"things_diagnose","arguments":{}}}'
 ```
