@@ -499,7 +499,7 @@ func TestStateUpdateRejectsUnknownKind(t *testing.T) {
 	s := NewState()
 	err := s.Update(things.Item{
 		UUID:   "future-item",
-		Kind:   things.ItemKind("Task7"),
+		Kind:   things.ItemKind("Task8"),
 		Action: things.ItemActionCreated,
 		P:      []byte(`{}`),
 	})

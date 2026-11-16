@@ -59,7 +59,12 @@ var (
 	ItemKindChecklistItem2 ItemKind = "ChecklistItem2"
 	ItemKindChecklistItem3 ItemKind = "ChecklistItem3"
 	// ItemKindTask identifies a Task or Subtask
-	ItemKindTask      ItemKind = "Task6"
+	ItemKindTask ItemKind = "Task6"
+	// ItemKindTask7 is the task kind written by Things 3.23+. It uses the same
+	// property keys as Task6, with explicit nulls for cleared fields. It is a
+	// read kind here; writes keep using ItemKindTask (Task6), which Things
+	// applies to Task7 tasks (see upstream things-cloud-sdk v0.6.0 docs).
+	ItemKindTask7     ItemKind = "Task7"
 	ItemKindTask4     ItemKind = "Task4"
 	ItemKindTask3     ItemKind = "Task3"
 	ItemKindTaskPlain ItemKind = "Task"
