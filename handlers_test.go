@@ -938,7 +938,8 @@ func TestHandleCreateTask(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleEditTask(t *testing.T) {
-	task := makeTaskItem("task-edit-1",
+	editTaskID := fixtureID("task-edit-1")
+	task := makeTaskItem(editTaskID,
 		withTitle("Original title"),
 		withCreationDate(mustTime("2025-03-10")),
 	)
@@ -949,7 +950,7 @@ func TestHandleEditTask(t *testing.T) {
 
 	t.Run("edit title", func(t *testing.T) {
 		req := makeReq(map[string]any{
-			"uuid":  "task-edit-1",
+			"uuid":  editTaskID,
 			"title": "Updated title",
 		})
 		result, err := tmcp.handleEditTask(context.Background(), req)
@@ -1009,7 +1010,7 @@ func TestHandleEditTask(t *testing.T) {
 
 	t.Run("complete task", func(t *testing.T) {
 		req := makeReq(map[string]any{
-			"uuid":   "task-edit-1",
+			"uuid":   editTaskID,
 			"status": "completed",
 		})
 		result, _ := tmcp.handleEditTask(context.Background(), req)

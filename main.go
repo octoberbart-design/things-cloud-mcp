@@ -12,7 +12,6 @@ import (
 	"hash/crc32"
 	"hash/fnv"
 	"log"
-	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -173,21 +172,61 @@ func defaultExtension() WireExtension {
 	return WireExtension{Sn: map[string]any{}, TypeTag: "oo"}
 }
 
+// generateUUID returns a new canonical Things identifier: Base58 of a random
+// 16-byte UUID, with one leading '1' per leading zero byte. A hand-rolled
+// encoder used to drop leading zero bytes, which produced 15-byte identifiers
+// for ~1/256 of new objects; Things.app crashes while syncing such records.
 func generateUUID() string {
-	u := uuid.New()
-	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-	n := new(big.Int).SetBytes(u[:])
-	base := big.NewInt(58)
-	mod := new(big.Int)
-	var encoded []byte
-	for n.Sign() > 0 {
-		n.DivMod(n, base, mod)
-		encoded = append(encoded, alphabet[mod.Int64()])
+	return thingscloud.NewUUID()
+}
+
+// identifierReferenceFields lists payload fields that hold lists of object
+// identifiers. Things.app decodes every one of them as a 16-byte Base58 UUID.
+var identifierReferenceFields = []string{"pr", "ar", "agr", "tg", "rt", "dl", "ts", "pn"}
+
+// describeCommit summarizes a commit for the audit log: kind, action and
+// object identifier of every item, without titles or notes.
+func describeCommit(items []thingscloud.Item) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, fmt.Sprintf("%s/t%d/%s", item.Kind, item.Action, item.UUID))
 	}
-	for i, j := 0, len(encoded)-1; i < j; i, j = i+1, j-1 {
-		encoded[i], encoded[j] = encoded[j], encoded[i]
+	return strings.Join(parts, " ")
+}
+
+// validateCommitIdentifiers rejects a commit before it reaches Things Cloud
+// when any object key or identifier reference is not a canonical 16-byte
+// Base58 identifier. Things Cloud history is append-only, so a malformed
+// identifier can never be removed once written.
+func validateCommitIdentifiers(items []thingscloud.Item) error {
+	for _, item := range items {
+		if err := thingscloud.ValidateUUID(item.UUID); err != nil {
+			return fmt.Errorf("%s %s: invalid object identifier: %w", item.Kind, item.UUID, err)
+		}
+		if len(item.P) == 0 || string(item.P) == "null" {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(item.P, &fields); err != nil {
+			return fmt.Errorf("%s %s: decode payload: %w", item.Kind, item.UUID, err)
+		}
+		for _, name := range identifierReferenceFields {
+			raw, ok := fields[name]
+			if !ok || string(raw) == "null" {
+				continue
+			}
+			var ids []string
+			if err := json.Unmarshal(raw, &ids); err != nil {
+				return fmt.Errorf("%s %s: field %s is not a list of identifiers", item.Kind, item.UUID, name)
+			}
+			for _, id := range ids {
+				if err := thingscloud.ValidateUUID(id); err != nil {
+					return fmt.Errorf("%s %s: field %s: invalid identifier: %w", item.Kind, item.UUID, name, err)
+				}
+			}
+		}
 	}
-	return string(encoded)
+	return nil
 }
 
 func nowTs() float64 {
@@ -1299,6 +1338,10 @@ func (t *ThingsMCP) writeAndSync(items ...thingscloud.Identifiable) error {
 	if err != nil {
 		return fmt.Errorf("validate commit: %w", err)
 	}
+	if err := validateCommitIdentifiers(expected); err != nil {
+		log.Printf("Write blocked: %v", err)
+		return fmt.Errorf("validate commit identifiers: %w", err)
+	}
 	if err := memory.NewState().Update(expected...); err != nil {
 		return fmt.Errorf("validate commit payload: %w", err)
 	}
@@ -1312,6 +1355,7 @@ func (t *ThingsMCP) writeAndSync(items ...thingscloud.Identifiable) error {
 		if errors.As(err, &uncertain) {
 			delta, syncErr := t.incrementalSync()
 			if syncErr == nil && containsExpectedEvents(delta, expected) {
+				log.Printf("Commit confirmed after uncertain response: %s", describeCommit(expected))
 				return nil
 			}
 			return fmt.Errorf("%w; reconciliation did not confirm the commit, do not retry automatically", err)
@@ -1329,6 +1373,7 @@ func (t *ThingsMCP) writeAndSync(items ...thingscloud.Identifiable) error {
 	}
 	t.history.LoadedServerIndex = t.history.LatestServerIndex
 	t.mu.Unlock()
+	log.Printf("Commit written at serverIndex=%d: %s", t.history.LatestServerIndex, describeCommit(expected))
 	now := time.Now()
 	t.lastWriteAt = now
 	t.lastSyncAt = now
