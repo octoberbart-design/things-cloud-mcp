@@ -69,6 +69,49 @@ func TestAuthorizePostRefusesAccountOutsideAllowlistWithoutVerify(t *testing.T) 
 	}
 }
 
+func TestRefreshRefusesAccountRemovedFromAllowlist(t *testing.T) {
+	t.Setenv("CREDENTIALS_SECRET", "")
+	um := NewUserManager()
+	um.allowedEmails = parseAllowedEmails("owner@example.com")
+	o := NewOAuthServer(um, t.TempDir())
+	defer o.db.Close()
+	const removed = "former@example.com"
+	if err := o.persistCredential(removed, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	rt := &RefreshToken{Token: "refresh-removed", Email: removed, Password: "pw", ClientID: "c", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := o.persistRefreshToken(rt); err != nil {
+		t.Fatal(err)
+	}
+	o.mu.Lock()
+	o.refreshTokens[refreshTokenKey(rt.Token)] = rt
+	o.credentials[removed] = "pw"
+	o.mu.Unlock()
+
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {rt.Token}}
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	o.handleRefreshTokenGrant(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
+		t.Fatalf("expected invalid_grant, got %d %s", rec.Code, rec.Body.String())
+	}
+	o.mu.RLock()
+	_, tokenLeft := o.refreshTokens[refreshTokenKey(rt.Token)]
+	_, credLeft := o.credentials[removed]
+	o.mu.RUnlock()
+	if tokenLeft || credLeft {
+		t.Fatal("refused account must lose its refresh token and stored password")
+	}
+	var n int
+	o.db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens`).Scan(&n)
+	var c int
+	o.db.QueryRow(`SELECT COUNT(*) FROM credentials WHERE email=?`, removed).Scan(&c)
+	if n != 0 || c != 0 {
+		t.Fatalf("database still holds %d refresh token(s) and %d credential(s)", n, c)
+	}
+}
+
 func TestListenAddrDefaultsToLoopback(t *testing.T) {
 	t.Setenv("LISTEN_ADDR", "")
 	if got := listenAddr("28063"); got != "127.0.0.1:28063" {

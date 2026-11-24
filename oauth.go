@@ -1006,6 +1006,19 @@ func (o *OAuthServer) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// An account removed from ALLOWED_EMAILS must not keep a session alive:
+	// drop its refresh token and stored Things password instead of rotating.
+	if !o.um.emailAllowed(rt.Email) {
+		delete(o.refreshTokens, refreshKey)
+		delete(o.credentials, rt.Email)
+		o.mu.Unlock()
+		o.db.Exec(`DELETE FROM refresh_tokens WHERE token=?`, refreshKey)
+		o.db.Exec(`DELETE FROM credentials WHERE email=?`, rt.Email)
+		log.Printf("OAuth: refused refresh for an account outside ALLOWED_EMAILS; session removed")
+		writeJSONError(w, http.StatusBadRequest, "invalid_grant", "account is not allowed on this server")
+		return
+	}
+
 	email := rt.Email
 	password := rt.Password
 	clientID := rt.ClientID
